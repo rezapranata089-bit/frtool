@@ -78,7 +78,7 @@ cd FRTool
 Ubah *permission* file `frtool` agar dapat dijalankan sebagai program.
 
 ```bash
-chmod +x frtool
+chmod +x frpatch
 ```
 
 ### 6. Jalankan FR Tool
@@ -86,7 +86,7 @@ chmod +x frtool
 Mulai jalankan alat Find & Replace AI.
 
 ```bash
-python frtool.py
+python frpatch.py
 ```
 
 ## ⚡ Instalasi Cepat (Satu Baris)
