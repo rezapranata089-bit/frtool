@@ -1,0 +1,133 @@
+# FR Tool
+
+<div align="center">
+  <img src="https://files.manuscdn.com/user_upload_by_module/session_file/310519663812152457/iOekdzDDazABvCPv.png" alt="FR Tool Banner" width="100%">
+  <br>
+  <p>
+    <a href="https://github.com/rezapranata089-bit/FRTool"><img src="https://img.shields.io/badge/GITHUB-REPOSITORY-2b2b2b?style=for-the-badge&logo=github" alt="Repository" /></a>
+    <a href="https://github.com/rezapranata089-bit/FRTool/issues"><img src="https://img.shields.io/badge/REPORT-BUGS-2b2b2b?style=for-the-badge&logo=github" alt="Report Bugs" /></a>
+    <a href="#"><img src="https://img.shields.io/badge/TERMUX-SUPPORTED-2b2b2b?style=for-the-badge&logo=termux" alt="Termux" /></a>
+  </p>
+  <!-- Tombol Clone -->
+  <a href="https://github.com/rezapranata089-bit/FRTool">
+    <img src="https://img.shields.io/badge/⬇_Clone_FR_Tool-007EC6?style=for-the-badge&logo=github&logoColor=white" height="50" alt="Clone FR Tool">
+  </a>
+</div>
+
+## 💡 Pengantar
+
+**FR Tool** adalah alat *Find & Replace* cerdas berbasis AI yang dirancang khusus untuk lingkungan Termux di perangkat Android. Alat ini bertujuan untuk menyederhanakan proses pencarian dan penggantian teks yang kompleks, memungkinkan pengguna untuk mengotomatisasi tugas-tugas yang repetitif dengan bantuan kecerdasan buatan.
+
+> Lelah mencari dan mengganti teks secara manual? Biarkan AI yang bekerja untukmu.
+
+## ✨ Fitur Utama
+
+*   **Pencarian & Penggantian Cerdas:** Memanfaatkan AI untuk identifikasi dan modifikasi teks yang lebih akurat dan efisien.
+*   **Dukungan Termux:** Dioptimalkan untuk berjalan lancar di lingkungan Termux Android, memberikan fleksibilitas bagi pengguna perangkat mobile.
+*   **Antarmuka Baris Perintah (CLI):** Menyediakan kontrol penuh melalui perintah teks, ideal untuk otomatisasi dan integrasi skrip.
+*   **Mode Dry-Run:** Memungkinkan pengguna untuk menguji operasi *find & replace* tanpa membuat perubahan permanen pada file, memastikan keamanan dan akurasi.
+*   **Format Patch Fleksibel:** Mendukung berbagai format patch, termasuk format `:find`, `:replace`, dan format `===FIND===/===REPLACE===`.
+
+## 📌 Persyaratan Sistem
+
+Untuk menjalankan FR Tool, pastikan Anda memenuhi persyaratan berikut:
+
+*   **Sistem Operasi:** Android
+*   **Aplikasi Terminal:** [Termux dari F-Droid](https://f-droid.org/packages/com.termux/) (Sangat direkomendasikan)
+
+> **⚠️ PENTING:** Gunakan aplikasi **Termux dari F-Droid**. Jangan menggunakan Termux dari Google Play Store karena versi tersebut sudah *deprecated* (usang) dan dapat menyebabkan banyak *error* atau masalah kompatibilitas.
+
+## 🚀 Instalasi & Penggunaan
+
+Ikuti langkah-langkah di bawah ini secara berurutan pada terminal Termux Anda:
+
+### 1. Perbarui & Tingkatkan Paket Sistem
+
+Pastikan sistem Termux Anda mendapatkan pembaruan paket terbaru untuk menghindari konflik dan memastikan kompatibilitas.
+
+```bash
+pkg update && pkg upgrade -y
+```
+
+### 2. Instal Git
+
+Git diperlukan untuk mengkloning (mengunduh) repositori FR Tool dari GitHub.
+
+```bash
+pkg install git -y
+```
+
+### 3. Kloning Repositori
+
+Unduh *source code* FR Tool ke perangkat Anda.
+
+```bash
+git clone https://github.com/rezapranata089-bit/FRTool.git
+```
+
+### 4. Masuk ke Direktori Proyek
+
+Navigasi ke folder FR Tool yang baru saja diunduh.
+
+```bash
+cd FRTool
+```
+
+### 5. Berikan Izin Eksekusi
+
+Ubah *permission* file `frtool` agar dapat dijalankan sebagai program.
+
+```bash
+chmod +x frtool
+```
+
+### 6. Jalankan FR Tool
+
+Mulai jalankan alat Find & Replace AI.
+
+```bash
+python frtool.py
+```
+
+## ⚡ Instalasi Cepat (Satu Baris)
+
+Bagi Anda yang menyukai efisiensi, salin dan tempel perintah di bawah ini untuk menginstal dan langsung menjalankan FR Tool dalam satu kali eksekusi:
+
+```bash
+pkg update && pkg upgrade -y && pkg install git -y && git clone https://github.com/rezapranata089-bit/FRTool.git && cd FRTool && chmod +x frtool && ./frtool
+```
+
+## 📸 Tampilan Aplikasi
+
+Berikut adalah beberapa *screenshot* dari FR Tool yang berjalan di Termux:
+
+### Layar Utama
+
+![Layar Utama FR Tool](https://github.com/rezapranata089-bit/FRTool/raw/master/Tampilan%20tools/Screenshot_20260704_182108_Termux.jpg)
+
+### Mode Patch
+
+![Mode Patch FR Tool](https://github.com/rezapranata089-bit/FRTool/raw/master/Tampilan%20tools/Screenshot_20260704_182116_Termux.jpg)
+
+### Contoh Penggunaan Patch
+
+![Contoh Penggunaan Patch FR Tool](https://github.com/rezapranata089-bit/FRTool/raw/master/Tampilan%20tools/Screenshot_20260704_182127_Termux.jpg)
+
+
+## 📄 Lisensi
+
+Proyek ini dilisensikan di bawah [MIT License](https://choosealicense.com/licenses/mit/).
+
+## 📧 Kontak & Media Sosial
+
+Jika Anda memiliki pertanyaan, ingin berdiskusi lebih lanjut, atau ingin mengikuti pembaruan terbaru, silakan hubungi pengembang melalui saluran berikut:
+
+| Platform | Tautan |
+| :--- | :--- |
+| **GitHub Issues** | [Laporkan Masalah](https://github.com/rezapranata089-bit/FRTool/issues) |
+| **TikTok** | [@yfinance3](https://tiktok.com/@yfinance3) |
+| **Facebook** | [Zeuxc666](https://m.facebook.com/zeuxc666) |
+
+---
+
+**ZEUXXI** - Juli 2026
