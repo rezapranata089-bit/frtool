@@ -4,31 +4,36 @@ from datetime import datetime
 _rc_map={}
 _df_bit=[False]
 _vkey='c7dce73a81fb5c4c64604838fba7cbf4ae63d068cde88086aca0cb8be65a71fb'
-_blk_ref = "d5d2d14ce66352b87667814382e582172a93532d4689b4cd16b4a8e5812cbf3c"
-_aux_ref = ["a5d36064eb8433ebdcbc00fd579a706cd4fdcd6e689021a12a07e6b0459c603e", "1c1ca9722956869d747e9893ef5781a6e7c5fd5803156ca51d2e1f601c12c6f2"]
+_blk_ref = "c6197a8b2541470084b9a47ccd37597b400182cd4707cd08e3dbb8ec66d5c0c5"
+_aux_ref = ["1ec2e83491a8263bbbb2930a40788807ffcfdeda474ebe57a4d56f6ed8516ba2", "3d101929ff1a6ee9004a02c90c7ad20ebd9b86ecf125208e21c4f4468eff3a82"]
 def _init_blk():
+	_tampered=False
 	try:
 		import inspect as _ins,hashlib as _hl;_chk=[('_sys_auth',_blk_ref),('_rc_ok',_aux_ref[0]),('_vf',_aux_ref[1])]
 		for(_n,_h)in _chk:
 			if not _h:continue
-			_fn=globals().get(_n)
-			if _fn is None or _hl.sha256(_ins.getsource(_fn).encode()).hexdigest()!=_h:
-				_df_bit[0]=True;import os as _os,time as _tm
-				if int(_tm.time())%2==0:_os._exit(1)
-				while True:_tm.sleep(60)
-	except Exception:pass
+			try:_fn=globals().get(_n);_ok=_fn is not None and _hl.sha256(_ins.getsource(_fn).encode()).hexdigest()==_h
+			except Exception:_ok=False
+			if not _ok:_tampered=True;break
+	except Exception:_tampered=True
+	if _tampered:
+		_df_bit[0]=True;import os as _os,time as _tm
+		if int(_tm.time())%2==0:_os._exit(1)
+		while True:_tm.sleep(60)
 def _rc_ok():
 	if _df_bit[0]:return False
 	try:
-		import inspect as _i,hashlib as _h;_r = "7fd98e7eea779d7570eb3efc83d1d8f1b3fb86b094e10d3b21470cb70f154ef4";_f=globals().get('_init_blk')
-		if _r and _f and _h.sha256(_i.getsource(_f).encode()).hexdigest()!=_r:return False
-	except Exception:pass
+		import inspect as _i,hashlib as _h;_r = "b0f18ef538c67210c767df6291dc13d292c19196946fa9e0bbe517a539a1f9db";_f=globals().get('_init_blk')
+		if not _f:return False
+		if _r and _h.sha256(_i.getsource(_f).encode()).hexdigest()!=_r:return False
+	except Exception:return False
 	return _rc_map.get('_v')is True and _rc_map.get('_t',0)>0
 def _vf():
 	try:
-		import inspect as _i,hashlib as _h;_r = "7fd98e7eea779d7570eb3efc83d1d8f1b3fb86b094e10d3b21470cb70f154ef4";_f=globals().get('_init_blk')
-		if _r and _f and _h.sha256(_i.getsource(_f).encode()).hexdigest()!=_r:print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
-	except Exception:pass
+		import inspect as _i,hashlib as _h;_r = "b0f18ef538c67210c767df6291dc13d292c19196946fa9e0bbe517a539a1f9db";_f=globals().get('_init_blk')
+		if _r:
+			if not _f or _h.sha256(_i.getsource(_f).encode()).hexdigest()!=_r:print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
+	except Exception:print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
 	if _rc_ok():return True
 	print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
 AI_CONFIG_PATH=os.path.expanduser('~/.frtool_config.json')
@@ -1946,7 +1951,7 @@ def draw_menu(selected_idx):
 	if term_cols<MIN_TERM_COLS or term_lines<MIN_TERM_LINES:warn=['','  \x1b[1;38;5;196m⚠  Layar terlalu kecil / zoom terlalu dalam\x1b[0m',f"  [38;5;{C_GRAY}mMinimal {MIN_TERM_COLS} kolom x {MIN_TERM_LINES} baris[0m",f"  [38;5;{C_GRAY}mSaat ini   : {term_cols} kolom x {term_lines} baris[0m",'',f"  [38;5;{C_DGRAY}mPerbesar (zoom out) tampilan terminal, lalu tekan tombol apa saja...[0m",''];sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+'\n'.join(line+'\x1b[K'for line in warn)+'\x1b[0J\x1b[?2026l');sys.stdout.flush();return
 	compact=term_lines<30;_zoom_factor=term_cols/8e1;W=max(24,min(term_cols-2,int(term_cols*.95)));div_w=W-2;max_path_len=max(5,div_w-15);root_short=SOURCE_ROOT if len(SOURCE_ROOT)<=max_path_len else'…'+SOURCE_ROOT[-(max_path_len-1):];buf=[];buf.append('');two_col=div_w>=56;left_w=max(18,int(div_w*.4))if two_col else div_w;right_w=div_w-left_w-3 if two_col else 0
 	if two_col and right_w<16:two_col=False;left_w,right_w=div_w,0
-	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By ZEXXI[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
+	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By Zeux[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
 	if two_col:
 		_tip_l1,_tip_l2=_get_dynamic_tip();_tip_l1=_tip_l1 if len(_tip_l1)<=right_w else _tip_l1[:max(0,right_w-1)]+'…';_tip_l2=_tip_l2 if len(_tip_l2)<=right_w else _tip_l2[:max(0,right_w-1)]+'…';right_cells=[_pad_cell(f"[1;38;5;{C_BORDER}mTips[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l1}[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l2}[0m",right_w),_pad_cell(f"[38;5;{C_DGRAY}m{"─"*right_w}[0m",right_w),_pad_cell(f"[1;38;5;{C_BORDER}mCommit Terakhir[0m",right_w)];_act=_get_recent_activity()
 		for _act_line in _wrap_plain_text(_act,right_w):right_cells.append(_pad_cell(f"[38;5;{C_GRAY}m{_act_line}[0m",right_w))
@@ -2035,6 +2040,17 @@ def _sys_auth():
 				except:print(f"\n  [36mSilakan salin dan buka link ini manual:[0m\n  {wa_url}")
 			sys.stdout.write('\x1b[?25h');sys.exit(0)
 		else:
+			_saved_fp=data.get('device_fp','')if isinstance(data,dict)else''
+			if _saved_fp and _saved_fp!=device_fp:
+				fast_clear();print('\n  \x1b[31m[AKSES DITOLAK]\x1b[0m ID Lisensi ini terdeteksi dipakai di perangkat lain.');print('  \x1b[1;31m[!] Satu ID Lisensi hanya untuk SATU perangkat.\x1b[0m');print('\n  \x1b[33mMengarahkan ke WhatsApp Admin dalam 3 detik...\x1b[0m');time.sleep(3);wa_text=f"Halo Admin, ID Lisensi saya ({hwid}) terdeteksi dipakai di perangkat lain. Mohon dibantu.";wa_url=f"https://wa.me/{ADMIN_WA}?text={urllib.parse.quote(wa_text)}"
+				try:subprocess.run(['termux-open-url',wa_url],check=True,stderr=subprocess.DEVNULL,stdout=subprocess.DEVNULL)
+				except:
+					try:subprocess.run(['am','start','-a','android.intent.action.VIEW','-d',wa_url],check=True,stderr=subprocess.DEVNULL,stdout=subprocess.DEVNULL)
+					except:print(f"\n  [36mSilakan salin dan buka link ini manual:[0m\n  {wa_url}")
+				sys.stdout.write('\x1b[?25h');sys.exit(0)
+			if _saved_fp!=device_fp:
+				try:_patch_req=urllib.request.Request(check_url,data=json.dumps({'device_fp':device_fp}).encode(),headers={'User-Agent':'Mozilla/5.0','Content-Type':'application/json'},method='PATCH');urllib.request.urlopen(_patch_req,timeout=10)
+				except Exception:pass
 			print('  \x1b[32m[OK]\x1b[0m Konfigurasi valid.')
 			if sisa_hari is not None:
 				if sisa_hari<=3:print(f"  [33m[PERINGATAN][0m Aktif hingga {expired_at} ({sisa_hari} hari lagi).")
