@@ -51,7 +51,7 @@ def save_recent_dir(path):
 if len(sys.argv)>1:_arg_path=os.path.abspath(os.path.expanduser(sys.argv[1]));SOURCE_ROOT=_arg_path if os.path.isdir(_arg_path)else os.getcwd()
 else:SOURCE_ROOT=os.getcwd()
 VERSION='v5.2'
-SELF_TOOL_ROOT='/storage/emulated/0/Download/tools fr'
+SELF_TOOL_ROOT='/storage/emulated/0/Download/FRTool/dev'
 def _is_self_tool_root():
 	try:return os.path.normpath(os.path.abspath(SOURCE_ROOT))==os.path.normpath(os.path.abspath(SELF_TOOL_ROOT))
 	except Exception:return False
@@ -1234,8 +1234,8 @@ def scan_dan_apply(patch_text,dry_run=False):
 def _git_dir():return os.path.join(SOURCE_ROOT,'.git')
 def _git_run(args):
 	try:
-		r=subprocess.run(['git','-C',SOURCE_ROOT]+args,capture_output=True,text=True)
-		if r.returncode!=0 and'dubious ownership'in r.stderr:subprocess.run(['git','config','--global','--add','safe.directory',SOURCE_ROOT],capture_output=True,text=True);r=subprocess.run(['git','-C',SOURCE_ROOT]+args,capture_output=True,text=True)
+		r=subprocess.run(['git','-C',SOURCE_ROOT]+args,capture_output=True,text=True,errors='replace')
+		if r.returncode!=0 and'dubious ownership'in r.stderr:subprocess.run(['git','config','--global','--add','safe.directory',SOURCE_ROOT],capture_output=True,text=True,errors='replace');r=subprocess.run(['git','-C',SOURCE_ROOT]+args,capture_output=True,text=True,errors='replace')
 		return r.returncode,r.stdout.strip(),r.stderr.strip()
 	except FileNotFoundError:return-1,'','git tidak ditemukan di sistem'
 _GIT_AVAILABLE_CACHE=None
@@ -1946,7 +1946,7 @@ def draw_menu(selected_idx):
 	if term_cols<MIN_TERM_COLS or term_lines<MIN_TERM_LINES:warn=['','  \x1b[1;38;5;196m⚠  Layar terlalu kecil / zoom terlalu dalam\x1b[0m',f"  [38;5;{C_GRAY}mMinimal {MIN_TERM_COLS} kolom x {MIN_TERM_LINES} baris[0m",f"  [38;5;{C_GRAY}mSaat ini   : {term_cols} kolom x {term_lines} baris[0m",'',f"  [38;5;{C_DGRAY}mPerbesar (zoom out) tampilan terminal, lalu tekan tombol apa saja...[0m",''];sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+'\n'.join(line+'\x1b[K'for line in warn)+'\x1b[0J\x1b[?2026l');sys.stdout.flush();return
 	compact=term_lines<30;_zoom_factor=term_cols/8e1;W=max(24,min(term_cols-2,int(term_cols*.95)));div_w=W-2;max_path_len=max(5,div_w-15);root_short=SOURCE_ROOT if len(SOURCE_ROOT)<=max_path_len else'…'+SOURCE_ROOT[-(max_path_len-1):];buf=[];buf.append('');two_col=div_w>=56;left_w=max(18,int(div_w*.4))if two_col else div_w;right_w=div_w-left_w-3 if two_col else 0
 	if two_col and right_w<16:two_col=False;left_w,right_w=div_w,0
-	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By ZEUX[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
+	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By ZEXXI[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
 	if two_col:
 		_tip_l1,_tip_l2=_get_dynamic_tip();_tip_l1=_tip_l1 if len(_tip_l1)<=right_w else _tip_l1[:max(0,right_w-1)]+'…';_tip_l2=_tip_l2 if len(_tip_l2)<=right_w else _tip_l2[:max(0,right_w-1)]+'…';right_cells=[_pad_cell(f"[1;38;5;{C_BORDER}mTips[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l1}[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l2}[0m",right_w),_pad_cell(f"[38;5;{C_DGRAY}m{"─"*right_w}[0m",right_w),_pad_cell(f"[1;38;5;{C_BORDER}mCommit Terakhir[0m",right_w)];_act=_get_recent_activity()
 		for _act_line in _wrap_plain_text(_act,right_w):right_cells.append(_pad_cell(f"[38;5;{C_GRAY}m{_act_line}[0m",right_w))
