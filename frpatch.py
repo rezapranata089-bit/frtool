@@ -68,6 +68,8 @@ C_WHITE=255
 C_GRAY=244
 C_DGRAY=240
 C_BORDER=166
+_GRAY_SEP='\x01'
+_SCROLL_SEP='\x02'
 RGB_TERRACOTTA_DARK=181,101,59
 RGB_TERRACOTTA_LIGHT=240,178,138
 RGB_PATCH_DARK=199,92,58
@@ -130,7 +132,10 @@ def _term_size():
 def fast_clear():sys.stdout.write('\x1b[H\x1b[2J');sys.stdout.flush()
 import re as _re
 _ANSI_RE=_re.compile('\\x1b\\[[0-9;]*m')
-def _vlen(s):return len(_ANSI_RE.sub('',s))
+_VS_RE=_re.compile('[︀-️]')
+_WIDE_CHARS={'📁','📄'}
+def _char_w(ch):return 2 if ch in _WIDE_CHARS else 1
+def _vlen(s):s=_ANSI_RE.sub('',s);s=_VS_RE.sub('',s);return sum(_char_w(c)for c in s)
 def _pad_cell(colored,width,center=False):
 	vis=_vlen(colored)
 	if center:lpad=max(0,(width-vis)//2);return' '*lpad+colored+' '*max(0,width-vis-lpad)
@@ -802,55 +807,93 @@ def _spinner_start(msg,color='36'):
 		sys.stdout.write('\r\x1b[K\n\r\x1b[K\x1b[1A\x1b[?25h');sys.stdout.flush()
 	t=threading.Thread(target=_run,daemon=True);t.start();return stop_event,t
 def _spinner_stop(stop_event,thread):stop_event.set();thread.join()
+_WORD_TOKEN_RE=None
+def _tokenize_line(line):
+	global _WORD_TOKEN_RE
+	if _WORD_TOKEN_RE is None:import re;_WORD_TOKEN_RE=re.compile('\\w+|\\s+|[^\\w\\s]')
+	return _WORD_TOKEN_RE.findall(line)
 def _char_diff_segments(old_line,new_line):
 	if old_line==new_line:return None,None
-	sm=difflib.SequenceMatcher(None,old_line,new_line,autojunk=False)
+	old_tokens=_tokenize_line(old_line);new_tokens=_tokenize_line(new_line);sm=difflib.SequenceMatcher(None,old_tokens,new_tokens,autojunk=False)
 	if sm.quick_ratio()<.25:return None,None
 	old_segs,new_segs=[],[]
 	for(tag,i1,i2,j1,j2)in sm.get_opcodes():
-		if i2>i1:old_segs.append((old_line[i1:i2],tag!='equal'))
-		if j2>j1:new_segs.append((new_line[j1:j2],tag!='equal'))
+		if i2>i1:old_segs.append((''.join(old_tokens[i1:i2]),tag!='equal'))
+		if j2>j1:new_segs.append((''.join(new_tokens[j1:j2]),tag!='equal'))
 	return old_segs,new_segs
+_SYNTAX_TOKENS_CACHE={}
+def _get_syntax_tokens(lang):
+	if lang in _SYNTAX_TOKENS_CACHE:return _SYNTAX_TOKENS_CACHE[lang]
+	import re,keyword as kwmod;KW,STR,NUM,CMT,DECO,FUNC,CLS,BLT,TAG,ATTR,SEL,PROP='\x1b[38;5;176m','\x1b[38;5;180m','\x1b[38;5;173m','\x1b[38;5;242m','\x1b[38;5;214m','\x1b[38;5;149m','\x1b[38;5;222m','\x1b[38;5;80m','\x1b[38;5;110m','\x1b[38;5;115m','\x1b[38;5;204m','\x1b[38;5;150m';tokens=[]
+	if lang=='python':py_builtins='print','len','range','isinstance','str','int','float','bool','list','dict','set','tuple','type','super','open','input','enumerate','zip','map','filter','sorted','sum','min','max','abs','round','any','all','iter','next','getattr','setattr','hasattr','property','staticmethod','classmethod','repr','vars','issubclass';kw_alt='|'.join(sorted(kwmod.kwlist,key=len,reverse=True));tokens=[(re.compile('#.*'),CMT),(re.compile('(?:[rRbBfFuU]{1,2})?(?:\\\'\\\'\\\'.*?\\\'\\\'\\\'|""".*?"""|\\\'(?:[^\\\'\\\\]|\\\\.)*\\\'|"(?:[^"\\\\]|\\\\.)*")'),STR),(re.compile('@[\\w.]+'),DECO),(re.compile('(?<=\\bdef )\\w+'),FUNC),(re.compile('(?<=\\bclass )\\w+'),CLS),(re.compile('\\b(?:'+kw_alt+')\\b'),KW),(re.compile('\\b(?:'+'|'.join(py_builtins)+')\\b(?=\\s*\\()'),BLT),(re.compile('\\b\\d+\\.?\\d*\\b'),NUM),(re.compile('\\b[A-Za-z_]\\w*(?=\\s*\\()'),FUNC)]
+	elif lang=='javascript':js_kw='const','let','var','function','return','if','else','for','while','do','switch','case','default','break','continue','class','extends','new','this','super','import','export','from','as','try','catch','finally','throw','async','await','yield','typeof','instanceof','in','of','void','delete','null','undefined','true','false','static','get','set','interface','type','enum','implements','public','private','protected','readonly','namespace';js_builtins='console','document','window','Math','JSON','Array','Object','String','Number','Boolean','Promise','Map','Set','WeakMap','WeakSet','Symbol','Date','RegExp','Error','parseInt','parseFloat','isNaN','isFinite','setTimeout','setInterval','clearTimeout','clearInterval','fetch','require','process';tokens=[(re.compile('//.*'),CMT),(re.compile('/\\*.*?\\*/'),CMT),(re.compile('</?[a-zA-Z][\\w-]*'),TAG),(re.compile('[a-zA-Z-][\\w-]*(?=\\s*=)'),ATTR),(re.compile('`(?:[^`\\\\]|\\\\.)*`'),STR),(re.compile('"(?:[^"\\\\]|\\\\.)*"'),STR),(re.compile("'(?:[^'\\\\]|\\\\.)*'"),STR),(re.compile('(?<=\\bfunction )\\w+'),FUNC),(re.compile('(?<=\\bclass )\\w+'),CLS),(re.compile('[a-zA-Z_$][\\w$]*(?=\\s*:)'),PROP),(re.compile('\\b(?:'+'|'.join(sorted(js_kw,key=len,reverse=True))+')\\b'),KW),(re.compile('\\b(?:'+'|'.join(js_builtins)+')\\b'),BLT),(re.compile('\\b\\d+\\.?\\d*\\b'),NUM),(re.compile('\\b[A-Za-z_$][\\w$]*(?=\\s*\\()'),FUNC)]
+	elif lang=='css':tokens=[(re.compile('/\\*.*?\\*/'),CMT),(re.compile('"(?:[^"\\\\]|\\\\.)*"'),STR),(re.compile("'(?:[^'\\\\]|\\\\.)*'"),STR),(re.compile('@[\\w-]+'),DECO),(re.compile('#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\\b'),NUM),(re.compile('::?[a-zA-Z-]+'),SEL),(re.compile('\\.[a-zA-Z_-][\\w-]*'),SEL),(re.compile('#[a-zA-Z_-][\\w-]*'),SEL),(re.compile('[a-zA-Z_-][\\w-]*(?=\\s*:)'),PROP),(re.compile('\\b\\d+\\.?\\d*(?:px|em|rem|%|vh|vw|vmin|vmax|s|ms|deg|fr)?(?:\\b|(?=\\W|$))'),NUM)]
+	elif lang=='html':js_kw_basic='const','let','var','function','return','if','else','for','while','class','import','export','document','window','console';tokens=[(re.compile('<!--.*?-->'),CMT),(re.compile('/\\*.*?\\*/'),CMT),(re.compile('//.*'),CMT),(re.compile('<!DOCTYPE[^>]*>',re.IGNORECASE),TAG),(re.compile('</?[a-zA-Z][\\w-]*'),TAG),(re.compile('"(?:[^"\\\\]|\\\\.)*"'),STR),(re.compile("'(?:[^'\\\\]|\\\\.)*'"),STR),(re.compile('`(?:[^`\\\\]|\\\\.)*`'),STR),(re.compile('[a-zA-Z-][\\w-]*(?=\\s*=)'),ATTR),(re.compile('[a-zA-Z_-][\\w-]*(?=\\s*:)'),PROP),(re.compile('\\.[a-zA-Z_-][\\w-]*'),SEL),(re.compile('#[a-zA-Z_-][\\w-]*'),SEL),(re.compile('\\b(?:'+'|'.join(sorted(js_kw_basic,key=len,reverse=True))+')\\b'),KW),(re.compile('\\b\\d+\\.?\\d*(?:px|em|rem|%|vh|vw|vmin|vmax|s|ms|deg|fr)?(?:\\b|(?=\\W|$))'),NUM),(re.compile('\\b[A-Za-z_$][\\w$]*(?=\\s*\\()'),FUNC)]
+	_SYNTAX_TOKENS_CACHE[lang]=tokens;return tokens
+def _syntax_color_map(line,lang):
+	n=len(line);colors=[None]*n;tokens=_get_syntax_tokens(lang)
+	if not tokens:return colors
+	pos=0
+	while pos<n:
+		matched=False
+		for(pattern,color)in tokens:
+			m=pattern.match(line,pos)
+			if m and m.end()>pos:colors[pos:m.end()]=[color]*(m.end()-pos);pos=m.end();matched=True;break
+		if not matched:pos+=1
+	return colors
+def _diff_stat_bar(plus,minus,slots=10):
+	total=plus+minus
+	if total==0:return'\x1b[38;5;238m'+'▪'*slots+'\x1b[0m'
+	green_n=round(slots*plus/total)
+	if plus and green_n==0:green_n=1
+	if minus and green_n==slots:green_n=slots-1
+	red_n=slots-green_n;return f"[38;5;71m{"▪"*green_n}[38;5;167m{"▪"*red_n}[0m"
+def _trailing_ws_run(line):
+	import re
+	if not line.strip():return
+	m=re.search('[ \\t]+$',line);return(m.start(),m.end())if m else None
 def tampilkan_diff(content_lama,content_baru,filepath,capture=False):
-	rel=os.path.relpath(filepath,SOURCE_ROOT);stop_ev,t=_spinner_start('Menyiapkan pratinjau baris kode...');a_lines=content_lama.splitlines();b_lines=content_baru.splitlines();sm=difflib.SequenceMatcher(None,a_lines,b_lines);groups=list(sm.get_grouped_opcodes(3));total_plus=sum(j2-j1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('insert','replace'));total_minus=sum(i2-i1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('delete','replace'));_spinner_stop(stop_ev,t)
+	rel=os.path.relpath(filepath,SOURCE_ROOT);_lang={'.py':'python','.js':'javascript','.jsx':'javascript','.mjs':'javascript','.cjs':'javascript','.ts':'javascript','.tsx':'javascript','.html':'html','.htm':'html','.css':'css'}.get(os.path.splitext(rel)[1].lower());import re;stop_ev,t=_spinner_start('Menyiapkan pratinjau baris kode...');a_lines=content_lama.splitlines();b_lines=content_baru.splitlines();sm=difflib.SequenceMatcher(None,a_lines,b_lines);groups=list(sm.get_grouped_opcodes(3));total_plus=sum(j2-j1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('insert','replace'));total_minus=sum(i2-i1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('delete','replace'));_spinner_stop(stop_ev,t)
 	if not groups:
 		if capture:return['  (tidak ada perubahan)']
 		print('  (tidak ada perubahan)');return
 	num_width=max(len(str(len(a_lines))),len(str(len(b_lines))),4);term_cols=_term_size().columns;bar_w=max(20,min(term_cols-2,int(term_cols*.95)));content_w=max(term_cols-(num_width+7),20);B,R=f"[38;5;{C_BORDER}m",'\x1b[0m';out=[]
 	def _pad(text,width):vis=_vlen(text);return text+' '*(width-vis)if vis<width else text
-	def _print_line(num,code,kind,segments=None):
+	def _print_line(num,code,kind,segments=None,ws_only=False):
 		num_str=str(num).rjust(num_width)
 		if segments:
 			hl=[]
 			for(seg_text,changed)in segments:hl.extend([changed]*len(seg_text))
 		else:hl=[False]*len(code)
-		chunks=[code[i:i+content_w]for i in range(0,max(len(code),1),content_w)]or[''];hl_chunks=[hl[i:i+content_w]for i in range(0,max(len(hl),1),content_w)]or[[]]
+		synmap=_syntax_color_map(code,_lang)if _lang else None;ws_run=_trailing_ws_run(code)if kind in('add','ctx')else None;chunks=[code[i:i+content_w]for i in range(0,max(len(code),1),content_w)]or[''];hl_chunks=[hl[i:i+content_w]for i in range(0,max(len(hl),1),content_w)]or[[]]
 		while len(hl_chunks)<len(chunks):hl_chunks.append([])
 		for(idx,chunk)in enumerate(chunks):
-			hlc=hl_chunks[idx]
+			hlc=hl_chunks[idx]or[False]*len(chunk);base_off=idx*content_w
 			if idx==0:
-				if kind=='del':gutter=f"[48;2;72;38;38m[1;38;2;214;190;190m {num_str} [1;38;2;196;120;120m-[0m"
-				elif kind=='add':gutter=f"[48;2;36;56;40m[1;38;2;196;214;196m {num_str} [1;38;2;140;186;140m+[0m"
+				if kind=='del':sym,sym_c=('≈','\x1b[1;38;5;244m')if ws_only else('-','\x1b[1;38;2;196;120;120m');gutter=f"[48;2;72;38;38m[1;38;2;214;190;190m {num_str} {sym_c}{sym}[0m"
+				elif kind=='add':sym,sym_c=('≈','\x1b[1;38;5;244m')if ws_only else('+','\x1b[1;38;2;140;186;140m');gutter=f"[48;2;36;56;40m[1;38;2;196;214;196m {num_str} {sym_c}{sym}[0m"
 				else:gutter=f"[38;5;240m {num_str}  [0m"
 			else:
 				blank=' '*num_width
 				if kind=='del':gutter=f"[48;2;72;38;38m[1;38;2;214;190;190m {blank} [1;38;2;196;120;120m [0m"
 				elif kind=='add':gutter=f"[48;2;36;56;40m[1;38;2;196;214;196m {blank} [1;38;2;140;186;140m [0m"
 				else:gutter=f"[38;5;240m {blank}  [0m"
-			if kind=='del':base='\x1b[48;2;72;38;38m\x1b[38;2;214;190;190m';hi='\x1b[48;2;140;44;44m\x1b[1;38;2;255;218;218m'
-			elif kind=='add':base='\x1b[48;2;36;56;40m\x1b[38;2;196;214;196m';hi='\x1b[48;2;38;122;62m\x1b[1;38;2;218;255;218m'
-			else:base='\x1b[38;5;250m';hi=base
-			if kind in('del','add')and any(hlc):
-				pieces=[];cur,buf=hlc[0],''
-				for(ch,on)in zip(chunk,hlc):
-					if on!=cur:pieces.append((cur,buf));buf,cur=ch,on
-					else:buf+=ch
-				pieces.append((cur,buf));body_txt=''.join((hi if on else base)+text for(on,text)in pieces);pad_n=content_w-len(chunk);body=f"{base} {body_txt}{" "*max(0,pad_n)}[0m"
-			else:body=f"{base} {_pad(chunk,content_w)}[0m"
-			out.append(f"  {gutter}{body}")
-	out.append(f"\n  {B}┌{"─"*bar_w}┐{R}");out.append(f"  {B}│{R} [1;38;5;{C_CYAN}m✎ {rel}[0m");out.append(f"  {B}│{R} [1;38;5;46m+{total_plus}[0m baris ditambah   [1;38;5;203m-{total_minus}[0m baris dihapus");out.append(f"  {B}└{"─"*bar_w}┘{R}\n")
+			if kind=='del':base='\x1b[48;2;72;38;38m\x1b[38;2;214;190;190m';hi='\x1b[48;2;140;44;44m\x1b[1;38;2;255;218;218m';bg_only='\x1b[48;2;72;38;38m'
+			elif kind=='add':base='\x1b[48;2;36;56;40m\x1b[38;2;196;214;196m';hi='\x1b[48;2;38;122;62m\x1b[1;38;2;218;255;218m';bg_only='\x1b[48;2;36;56;40m'
+			else:base='\x1b[38;5;250m';hi=base;bg_only=''
+			ws_marker='\x1b[4;38;5;167m';pieces=[]
+			for(pos,ch)in enumerate(chunk):
+				on=hlc[pos]if pos<len(hlc)else False;abs_pos=base_off+pos;syn=synmap[abs_pos]if synmap and abs_pos<len(synmap)else None
+				if ws_run and ws_run[0]<=abs_pos<ws_run[1]:color,disp=ws_marker,'·'
+				elif on:color,disp=hi,ch
+				elif syn:color,disp=bg_only+syn,ch
+				else:color,disp=base,ch
+				if pieces and pieces[-1][0]==color:pieces[-1]=color,pieces[-1][1]+disp
+				else:pieces.append((color,disp))
+			body_txt=''.join(color+text for(color,text)in pieces);pad_n=content_w-len(chunk);body=f"{base} {body_txt}{" "*max(0,pad_n)}[0m";out.append(f"  {gutter}{body}")
+	stat_bar=_diff_stat_bar(total_plus,total_minus);out.append(f"\n  {B}┌{"─"*bar_w}┐{R}");out.append(f"  {B}│{R} [1;38;5;{C_CYAN}m✎ {rel}[0m");out.append(f"  {B}│{R} [1;38;5;46m+{total_plus}[0m baris ditambah   [1;38;5;203m-{total_minus}[0m baris dihapus   {stat_bar}");out.append(f"  {B}└{"─"*bar_w}┘{R}\n")
 	for(gi,group)in enumerate(groups):
-		if gi>0:out.append(f"  {B}  ⋮ {"─"*max(0,bar_w-3)}{R}")
+		if gi>0:prev_i2=groups[gi-1][-1][2];skip_n=max(0,group[0][1]-prev_i2);label=f"⋮ {skip_n} baris tidak berubah "if skip_n>0 else'⋮ ';dash_n=max(0,bar_w-1-len(label));out.append(f"  {B}  {label}{"─"*dash_n}{R}")
 		for(tag,i1,i2,j1,j2)in group:
 			if tag=='equal':
 				for k in range(i2-i1):_print_line(j1+k+1,a_lines[i1+k],'ctx')
@@ -859,16 +902,49 @@ def tampilkan_diff(content_lama,content_baru,filepath,capture=False):
 			elif tag=='insert':
 				for k in range(j1,j2):_print_line(k+1,b_lines[k],'add')
 			elif tag=='replace':
-				seg_del,seg_add={},{}
+				seg_del,seg_add,ws_del,ws_add={},{},{},{}
 				if i2-i1==j2-j1:
 					for k in range(i2-i1):
-						o_segs,n_segs=_char_diff_segments(a_lines[i1+k],b_lines[j1+k])
+						old_l,new_l=a_lines[i1+k],b_lines[j1+k];o_segs,n_segs=_char_diff_segments(old_l,new_l)
 						if o_segs is not None:seg_del[i1+k]=o_segs;seg_add[j1+k]=n_segs
-				for k in range(i1,i2):_print_line(k+1,a_lines[k],'del',segments=seg_del.get(k))
-				for k in range(j1,j2):_print_line(k+1,b_lines[k],'add',segments=seg_add.get(k))
+						if old_l!=new_l and re.sub('\\s+','',old_l)==re.sub('\\s+','',new_l):ws_del[i1+k]=True;ws_add[j1+k]=True
+				for k in range(i1,i2):_print_line(k+1,a_lines[k],'del',segments=seg_del.get(k),ws_only=ws_del.get(k,False))
+				for k in range(j1,j2):_print_line(k+1,b_lines[k],'add',segments=seg_add.get(k),ws_only=ws_add.get(k,False))
 	out.append('')
 	if capture:return out
 	print('\n'.join(out))
+def tampilkan_preview_pencarian(matched_content,filepath,r0,r1,rtype,line_no,ctx_n=4):
+	import bisect;rel=os.path.relpath(filepath,SOURCE_ROOT);_lang={'.py':'python','.js':'javascript','.jsx':'javascript','.mjs':'javascript','.cjs':'javascript','.ts':'javascript','.tsx':'javascript','.html':'html','.htm':'html','.css':'css'}.get(os.path.splitext(rel)[1].lower());lines_no_end=matched_content.splitlines();n_total=len(lines_no_end);hl_ranges={}
+	if rtype.startswith('head_tail'):
+		match_start_idx=r0;match_end_idx=max(r0,r1-1)
+		for i in range(match_start_idx,min(match_end_idx,n_total-1)+1):hl_ranges[i]=0,len(lines_no_end[i])
+	else:
+		offsets=[];pos=0
+		for l in matched_content.splitlines(keepends=True):offsets.append(pos);pos+=len(l)
+		end_pos=max(r0,r1-1);match_start_idx=max(0,bisect.bisect_right(offsets,r0)-1);match_end_idx=max(match_start_idx,bisect.bisect_right(offsets,end_pos)-1)
+		for i in range(match_start_idx,min(match_end_idx,n_total-1)+1):line_off=offsets[i];line_text=lines_no_end[i];hl_ranges[i]=max(0,r0-line_off),max(0,min(len(line_text),r1-line_off))
+	ctx_from=max(0,match_start_idx-ctx_n);ctx_to=min(n_total,match_end_idx+1+ctx_n);num_w=len(str(max(ctx_to,1)));term_cols=_term_size().columns;bar_w=max(20,min(term_cols-2,int(term_cols*.95)));content_w=max(term_cols-(num_w+6),20);B,R=f"[38;5;{C_BORDER}m",'\x1b[0m';HI='\x1b[48;2;110;84;18m\x1b[1;38;2;255;236;179m';BG_RESET='\x1b[49m';out=[];out.append(f"\n  {B}┌{"─"*bar_w}┐{R}");out.append(f"  {B}│{R} [1;38;5;{C_CYAN}m🔎 {rel}[0m");out.append(f"  {B}│{R} [38;5;244mkode cocok di baris {line_no}[0m");out.append(f"  {B}└{"─"*bar_w}┘{R}\n")
+	if ctx_from>0:out.append(f"  [38;5;240m{"⋮":>{num_w+2}}[0m")
+	for i in range(ctx_from,ctx_to):
+		code=lines_no_end[i];is_match=i in hl_ranges;synmap=_syntax_color_map(code,_lang)if _lang else None;chunks=[code[k:k+content_w]for k in range(0,max(len(code),1),content_w)]or['']
+		for(cidx,chunk)in enumerate(chunks):
+			base_off=cidx*content_w;blank=' '*num_w
+			if cidx==0:
+				if is_match:gutter=f"[48;2;58;46;18m[1;38;2;255;214;120m {i+1:>{num_w}} »[0m"
+				else:gutter=f"[38;5;240m {i+1:>{num_w}}  [0m"
+			elif is_match:gutter=f"[48;2;58;46;18m[1;38;2;255;214;120m {blank} [0m"
+			else:gutter=f"[38;5;240m {blank}  [0m"
+			pieces=[]
+			for(pos_c,ch)in enumerate(chunk):
+				abs_pos=base_off+pos_c;syn=synmap[abs_pos]if synmap and abs_pos<len(synmap)else None
+				if is_match and hl_ranges[i][0]<=abs_pos<hl_ranges[i][1]:color=HI
+				elif syn:color=BG_RESET+syn
+				else:color=BG_RESET+'\x1b[38;5;250m'
+				if pieces and pieces[-1][0]==color:pieces[-1]=color,pieces[-1][1]+ch
+				else:pieces.append((color,ch))
+			body_txt=''.join(c+t for(c,t)in pieces);out.append(f"  {gutter} {body_txt}[0m")
+	if ctx_to<n_total:out.append(f"  [38;5;240m{"⋮":>{num_w+2}}[0m")
+	out.append('');print('\n'.join(out))
 def ambil_konteks_file(find_text,content,n_lines=20):
 	import re;lines=content.splitlines()
 	if _has_ellipsis(find_text):head,_=_split_ellipsis(find_text);search_lines=head
@@ -1371,10 +1447,173 @@ def _git_changed_files(commit_hash):
 	if code!=0 or not out:return[]
 	return[l for l in out.splitlines()if l.strip()]
 def _git_file_at(rev,relpath):code,out,_=_git_run(['show',f"{rev}:{relpath}"]);return out if code==0 else''
+def _git_all_files_in_history():
+	code,out,_=_git_run(['log','--pretty=format:','--name-only'])
+	if code!=0 or not out:return[]
+	files=set()
+	for line in out.splitlines():
+		line=line.strip()
+		if not line:continue
+		if'"'in line or len(line)>200:continue
+		files.add(line)
+	return sorted(files)
+def _git_current_tracked_files():
+	code,out,_=_git_run(['ls-tree','-r','--name-only','HEAD'])
+	if code!=0 or not out:return set()
+	return set(l.strip()for l in out.splitlines()if l.strip())
+def _build_file_tree(paths):
+	root={'dirs':{},'files':[]}
+	for p in paths:
+		parts=[seg for seg in p.split('/')if seg]
+		if not parts:continue
+		node=root
+		for seg in parts[:-1]:node=node['dirs'].setdefault(seg,{'dirs':{},'files':[]})
+		node['files'].append((parts[-1],p))
+	return root
+def _git_log_entries_for_file(relpath,limit=300):
+	fmt='%h\x1f%ad\x1f%s';code,out,_=_git_run(['log','--follow',f"-n{limit}",f"--pretty=format:{fmt}",'--date=format:%Y-%m-%d %H:%M','--',relpath])
+	if code!=0 or not out:return[]
+	entries=[]
+	for line in out.split('\n'):
+		parts=line.split('\x1f')
+		if len(parts)!=3:continue
+		h,date,msg=parts;entries.append({'hash':h,'date':date,'msg':msg})
+	return entries
+def _git_checkout_file_at(commit_hash,relpath):code,out,err=_git_run(['checkout',commit_hash,'--',relpath]);return code==0,err or out
+_IMAGE_EXTS={'.png','.jpg','.jpeg','.gif','.bmp','.webp','.ico','.tiff'}
+def _is_image_file(relpath):_,ext=os.path.splitext(relpath);return ext.lower()in _IMAGE_EXTS
+def _git_show_binary(rev,relpath):
+	try:r=subprocess.run(['git','-C',SOURCE_ROOT,'show',f"{rev}:{relpath}"],capture_output=True);return r.stdout if r.returncode==0 else None
+	except FileNotFoundError:return
+def _buka_gambar_commit(rev,relpath):
+	data=_git_show_binary(rev,relpath)
+	if not data:return False,'Gagal mengambil isi gambar dari commit ini (mungkin dihapus di revisi ini).'
+	tmp_dir=os.path.join(SOURCE_ROOT,'.patch_backups','_preview_gambar')
+	try:
+		if os.path.isdir(tmp_dir):
+			for fn in os.listdir(tmp_dir):
+				try:os.remove(os.path.join(tmp_dir,fn))
+				except OSError:pass
+		else:os.makedirs(tmp_dir,exist_ok=True)
+		tmp_path=os.path.join(tmp_dir,f"{rev}_{os.path.basename(relpath)}")
+		with open(tmp_path,'wb')as f:f.write(data)
+	except Exception as e:return False,f"Gagal menyimpan file sementara: {e}"
+	try:
+		r=subprocess.run(['termux-open',tmp_path],capture_output=True,text=True)
+		if r.returncode!=0:err=(r.stderr or r.stdout or'').strip();return False,err or'termux-open gagal dijalankan. Install: pkg install termux-api'
+	except FileNotFoundError:return False,'termux-open tidak ditemukan. Install dulu: pkg install termux-api'
+	return True,f"Membuka {os.path.basename(relpath)} lewat aplikasi galeri..."
+def _preview_diff_file(commit_hash,relpath,full_path,lama,baru):
+	if _is_image_file(relpath):print(f"  [38;5;{C_DGRAY}m🖼  File gambar — preview teks tidak akan terbaca.[0m");ok,pesan=_buka_gambar_commit(commit_hash,relpath);warna='32'if ok else'31';print(f"  [{warna}m{pesan}[0m")
+	else:tampilkan_diff(lama,baru,full_path)
 def _marquee_text(text,width,speed=6.,gap='   •   '):
 	import time
 	if len(text)<=width:return text.ljust(width)
 	loop=text+gap;offset=int(time.time()*speed)%len(loop);doubled=loop+loop;return doubled[offset:offset+width]
+def _draw_pilih_list(sel_idx,items,judul,hint,item_render_fn,extra_top=None):
+	term_size=_term_size();term_cols=term_size.columns;term_lines=term_size.lines
+	if term_cols<MIN_TERM_COLS or term_lines<MIN_TERM_LINES:warn=['','  \x1b[1;38;5;196m⚠  Layar terlalu kecil / zoom terlalu dalam\x1b[0m',f"  [38;5;{C_GRAY}mMinimal {MIN_TERM_COLS} kolom x {MIN_TERM_LINES} baris[0m",'',f"  [38;5;{C_DGRAY}mPerbesar (zoom out) tampilan terminal, lalu tekan tombol apa saja...[0m",''];sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+'\n'.join(line+'\x1b[K'for line in warn)+'\x1b[0J\x1b[?2026l');sys.stdout.flush();return
+	W=max(22,min(term_cols-2,int(term_cols*.95)));B=f"[38;5;{C_BORDER}m";R='\x1b[0m';BL=f"{B}│{R}";TL=f"  {B}┌{"─"*W}┐{R}";BT=f"  {B}└{"─"*W}┘{R}";buf=[''];buf.append(f"  [1;38;5;{C_CYAN}m{judul}[0m  [38;5;{C_DGRAY}m{hint}[0m")
+	if extra_top:
+		for l in extra_top:buf.append(f"  {l}")
+	buf.append(TL)
+	if not items:empty_raw='   (Tidak ada data)';buf.append(f"  {BL}[38;5;240m{empty_raw}{" "*max(0,W-len(empty_raw))}[0m{BL}")
+	else:
+		extra_n=len(extra_top)if extra_top else 0;max_view=max(4,min(14,term_lines-(10+extra_n)));start_i=max(0,sel_idx-max_view//2);start_i=min(start_i,max(0,len(items)-max_view));end_i=min(start_i+max_view,len(items))
+		if start_i>0:s_raw=f"   ▲ scroll ke atas... ({start_i} disembunyikan)";buf.append(f"  {BL}[38;5;240m{s_raw}{" "*max(0,W-len(s_raw))}[0m{BL}")
+		for i in range(start_i,end_i):
+			is_sel=i==sel_idx;label_full=item_render_fn(i,items[i]);marker='❯'if is_sel else' ';avail=W-4
+			if _SCROLL_SEP in label_full:
+				prefix,scrollable=label_full.split(_SCROLL_SEP,1);msg_avail=max(0,avail-_vlen(prefix))
+				if is_sel and _vlen(scrollable)>msg_avail:msg_t=_marquee_text(scrollable,msg_avail)
+				elif _vlen(scrollable)<=msg_avail:msg_t=scrollable
+				else:msg_t=scrollable[:max(0,msg_avail-1)]+'…'if msg_avail>0 else''
+				label_t=f"{prefix}{msg_t}"
+			elif _vlen(label_full)>avail:label_t=_marquee_text(label_full,avail)if is_sel else label_full[:max(0,avail-1)]+'…'if avail>0 else''
+			else:label_t=label_full
+			raw=f" {marker} {label_t}";pad=max(0,W-_vlen(raw))
+			if _GRAY_SEP in label_t:pad+=1;label_t=label_t.replace(_GRAY_SEP,f"[38;5;{C_GRAY}m")
+			if is_sel:row=f"[48;2;110;60;35m[1;38;2;230;210;255m {marker} {label_t}{" "*pad}[0m"
+			else:row=f"   [38;5;{C_CYAN}m{label_t}[0m{" "*pad}"
+			buf.append(f"  {BL}{row}{BL}")
+		if end_i<len(items):s_raw=f"   ▼ scroll ke bawah... ({len(items)-end_i} lagi)";buf.append(f"  {BL}[38;5;240m{s_raw}{" "*max(0,W-len(s_raw))}[0m{BL}")
+	buf.append(BT);buf.append('');_content_w=max((_vlen(l)for l in buf if l),default=0);_extra_margin=max(0,(term_cols-_content_w)//2)
+	if _extra_margin:buf=[' '*_extra_margin+l if l else l for l in buf]
+	out='\n'.join(line+'\x1b[K'for line in buf);sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+out+'\x1b[0J\x1b[?2026l');sys.stdout.flush()
+def _pilih_file_dari_riwayat(active_items,deleted_items):
+	tree=_build_file_tree(active_items);path_stack=[];node_stack=[tree];sel=0
+	while True:
+		node=node_stack[-1];is_root=not path_stack;dirnames=sorted(node['dirs'].keys(),key=str.lower);filenames=sorted(node['files'],key=lambda t:t[0].lower());entries=[('dir',d)for d in dirnames]+[('file',f)for f in filenames]
+		if is_root and deleted_items:entries=[('trash',None)]+entries
+		if not entries:
+			if not path_stack:return
+			node_stack.pop();path_stack.pop();sel=0;continue
+		sel=min(sel,len(entries)-1);breadcrumb='/'+'/'.join(path_stack)if path_stack else'/ (root)';extra_top=[f"[38;5;{C_DGRAY}m{breadcrumb}[0m"]
+		def _render(i,ent):
+			kind,val=ent
+			if kind=='trash':return f"🗑 Lihat file yang sudah dihapus ({len(deleted_items)})"
+			if kind=='dir':return f"📁 {val}/"
+			return f"📄 {val[0]}"
+		hint='↑↓ Pilih  ·  Enter Buka  ·  Esc '+('Naik'if path_stack else'Kembali');_draw_pilih_list(sel,entries,'PILIH FILE',hint,_render,extra_top=extra_top);k=get_key()
+		if k=='UP':sel=(sel-1)%len(entries)
+		elif k=='DOWN':sel=(sel+1)%len(entries)
+		elif k=='ENTER':
+			kind,val=entries[sel]
+			if kind=='trash':
+				hasil=_pilih_file_terhapus(deleted_items)
+				if hasil is not None:return hasil
+				sel=0
+			elif kind=='dir':node_stack.append(node['dirs'][val]);path_stack.append(val);sel=0
+			else:return val[1]
+		elif k in('ESC','q','Q','0'):
+			if path_stack:node_stack.pop();path_stack.pop();sel=0
+			else:return
+def _pilih_file_terhapus(deleted_items):
+	items=sorted(deleted_items,key=str.lower);sel=0
+	while True:
+		sel=min(sel,len(items)-1);extra_top=[f"[38;5;{C_DGRAY}m🗑 File terhapus/di-rename ({len(items)})[0m"];_draw_pilih_list(sel,items,'FILE SUDAH DIHAPUS','↑↓ Pilih  ·  Enter Lihat Riwayat  ·  Esc Kembali',lambda i,it:f"📄 {it}",extra_top=extra_top);k=get_key()
+		if k=='UP':sel=(sel-1)%len(items)
+		elif k=='DOWN':sel=(sel+1)%len(items)
+		elif k=='ENTER':return items[sel]
+		elif k in('ESC','q','Q','0'):return
+def _riwayat_commit_untuk_file(relpath):
+	entries=_git_log_entries_for_file(relpath);sel=0;msg=''
+	while True:
+		if not entries:clear();header(f"Riwayat: {relpath}");print('\n  \x1b[33m(Tidak ditemukan riwayat commit untuk file ini)\x1b[0m');input('\n  Tekan Enter untuk kembali...');return
+		sel=min(sel,len(entries)-1);extra_top=[f"[38;5;{C_DGRAY}m📄 {relpath}[0m"]
+		if msg:extra_top.append(msg)
+		_draw_pilih_list(sel,entries,'RIWAYAT FILE INI','↑↓ Pilih  ·  Enter Pulihkan  ·  D Diff  ·  Esc Kembali',lambda i,e:f"{e["hash"]}  {e["date"]}  {_SCROLL_SEP}{e["msg"]}",extra_top=extra_top);msg='';k=get_key(animate=True)
+		if k=='ANIMATE':continue
+		if k=='UP':sel=(sel-1)%len(entries)
+		elif k=='DOWN':sel=(sel+1)%len(entries)
+		elif k in('d','D'):target=entries[sel];lama=_git_file_at(f"{target["hash"]}^",relpath);baru=_git_file_at(target['hash'],relpath);sys.stdout.write('\x1b[?1049l\x1b[?25h');sys.stdout.flush();clear();header(f"Diff {relpath} @ {target["hash"]}");print(f"\n  {target["msg"]}  [38;5;244m({target["date"]})[0m\n");_preview_diff_file(target['hash'],relpath,os.path.join(SOURCE_ROOT,relpath),lama,baru);input('\n\n  Tekan Enter untuk kembali...');sys.stdout.write('\x1b[?1049h\x1b[?25l');sys.stdout.flush()
+		elif k=='ENTER':
+			target=entries[sel];changed=_git_changed_files(target['hash']);other_files=[f for f in changed if f!=relpath];lanjut=True
+			if other_files:
+				daftar=other_files[:5];pesan=[f"Commit {target["hash"]} sebenarnya mengubah {len(changed)} file,",'bukan cuma file ini. File lain yang ikut berubah:']+[f"  • {f}"for f in daftar]
+				if len(other_files)>len(daftar):pesan.append(f"  ... dan {len(other_files)-len(daftar)} file lain")
+				pesan+=['','Memulihkan cuma file ini (tanpa file lain yang terkait)','berisiko bikin kode jadi tidak konsisten / error.','Tetap lanjutkan?']
+				try:konfirm=popup_confirm('⚠ COMMIT INI MENGUBAH FILE LAIN JUGA',pesan,[('y','Ya, Lanjut'),('n','Batal')])
+				except(EOFError,KeyboardInterrupt):konfirm='n'
+				lanjut=konfirm=='y'
+			if lanjut:
+				lama=_git_file_at(f"{target["hash"]}^",relpath);baru=_git_file_at(target['hash'],relpath);sys.stdout.write('\x1b[?1049l\x1b[?25h');sys.stdout.flush();clear();header('Pulihkan File Ini');print(f"\n  Commit  : [1;38;5;117m{target["hash"]}[0m  ({target["date"]})");print(f"  Pesan   : {target["msg"]}");print(f"  File    : {relpath}\n");_preview_diff_file(target['hash'],relpath,os.path.join(SOURCE_ROOT,relpath),lama,baru)
+				try:konfirm2=popup_confirm('PULIHKAN FILE INI',['\x1b[33m[PERINGATAN]\x1b[0m Isi file akan ditimpa dengan versi',f"pada commit {target["hash"]}. Perubahan yang belum di-commit",'pada file ini akan hilang. Lanjutkan?'],[('y','Ya, Pulihkan'),('n','Batal')])
+				except(EOFError,KeyboardInterrupt):konfirm2='n'
+				if konfirm2=='y':
+					ok3,err3=_git_checkout_file_at(target['hash'],relpath)
+					if ok3:_git_commit_session([relpath],custom_msg=f"Pulihkan {relpath} ke versi commit {target["hash"]}");print(f"\n  [32m[OK][0m {relpath} dipulihkan ke versi commit {target["hash"]}.");msg=f"[32m[OK][0m {relpath} dipulihkan ke {target["hash"]}.";entries=_git_log_entries_for_file(relpath)
+					else:print(f"\n  [31m[GAGAL][0m {err3}");msg=f"[31m[GAGAL][0m {err3}"
+					input('\n  Tekan Enter untuk lanjut...')
+				sys.stdout.write('\x1b[?1049h\x1b[?25l');sys.stdout.flush()
+		elif k in('ESC','q','Q','0'):return
+def _restore_per_file():
+	while True:
+		semua_file=_git_all_files_in_history()
+		if not semua_file:clear();header('Pulihkan Sesi — Per File');print('\n  \x1b[33m(Belum ada file yang tercatat di riwayat commit)\x1b[0m');input('\n  Tekan Enter untuk kembali ke menu...');return
+		tracked=_git_current_tracked_files();file_aktif=[f for f in semua_file if f in tracked];file_hapus=[f for f in semua_file if f not in tracked];relpath=_pilih_file_dari_riwayat(file_aktif,file_hapus)
+		if relpath is None:return
+		_riwayat_commit_untuk_file(relpath)
 def _list_py_files():
 	hasil=[]
 	for(dirpath,dirnames,filenames)in os.walk(SOURCE_ROOT):
@@ -1410,6 +1649,19 @@ def cek_sintaks_menu():
 		print(f"\n{M}  [33mJANGAN restart tool pakai file ini dulu — perbaiki errornya, cek ulang.[0m")
 	print();input(f"{M}  Tekan Enter untuk kembali ke menu...")
 def restore_backup():
+	ok,err=_git_ensure_repo()
+	if not ok:clear();header('Pulihkan Sesi (Git)');print(f"\n  [31m[GAGAL][0m {err}");input('\n  Tekan Enter untuk kembali ke menu...');return
+	mode_items=[('f','Per File','Pilih 1 file, lihat & pulihkan riwayatnya sendiri'),('c','Semua Commit','Time machine seluruh project (reset --hard)')];_mode_w=max(len(it[1])for it in mode_items);sel=0
+	while True:
+		_draw_pilih_list(sel,mode_items,'PULIHKAN SESI','↑↓ Pilih  ·  Enter Lanjut  ·  Esc Batal',lambda i,it:f"{it[1]:<{_mode_w}}  {_GRAY_SEP}—  {it[2]}");k=get_key()
+		if k=='UP':sel=(sel-1)%len(mode_items)
+		elif k=='DOWN':sel=(sel+1)%len(mode_items)
+		elif k=='ENTER':
+			mode=mode_items[sel][0]
+			if mode=='f':_restore_per_file()
+			elif mode=='c':_restore_semua_commit()
+		elif k in('ESC','q','Q','0'):return
+def _restore_semua_commit():
 	ok,err=_git_ensure_repo()
 	if not ok:clear();header('Pulihkan Sesi (Git)');print(f"\n  [31m[GAGAL][0m {err}");input('\n  Tekan Enter untuk kembali ke menu...');return
 	def _pad(col,raw,width):return col+' '*max(0,width-len(raw))
@@ -1469,7 +1721,7 @@ def restore_backup():
 			print()
 			if not file_diffs:print('  \x1b[38;5;244m(Tidak ada perubahan yang tercatat di riwayat ini)\x1b[0m\n')
 			else:
-				for(full_path,lama,baru)in file_diffs:rel=os.path.relpath(full_path,SOURCE_ROOT);print(f"  [1;38;5;{C_CYAN}m📄 {rel}[0m");tampilkan_diff(lama,baru,full_path);print()
+				for(full_path,lama,baru)in file_diffs:rel=os.path.relpath(full_path,SOURCE_ROOT);print(f"  [1;38;5;{C_CYAN}m📄 {rel}[0m");_preview_diff_file(target['hash'],rel,full_path,lama,baru);print()
 			try:konfirm=popup_confirm('PULIHKAN KE COMMIT INI',['\x1b[33m[PERINGATAN]\x1b[0m Semua perubahan setelah commit ini','akan hilang dari working directory (tetap ada di git history).','Lanjutkan?'],[('y','Ya, Pulihkan'),('n','Batal')])
 			except(EOFError,KeyboardInterrupt):konfirm='n'
 			if konfirm!='y':sys.stdout.write('\x1b[?1049h\x1b[?25l');sys.stdout.flush();_first_draw=True;continue
@@ -1754,11 +2006,14 @@ def cari_dan_ganti_manual():
 			try:line=input()
 			except(EOFError,KeyboardInterrupt):return
 			stripped=line.strip()
+			if stripped=='DONE':
+				while lines and lines[-1].strip()=='':lines.pop()
+				break
 			if stripped.lower()in('exit','q','0','batal'):return
 			if stripped.upper()=='HAPUS':return''
 			if stripped=='':
 				empty_streak+=1
-				if empty_streak>=3:
+				if empty_streak>=2:
 					while lines and lines[-1].strip()=='':lines.pop()
 					break
 				lines.append(line)
@@ -1806,7 +2061,7 @@ def cari_dan_ganti_manual():
 	while True:
 		blok_ke+=1;print()
 		if blok_ke>1:print(f"  [38;5;240m{"═"*sep_w}[0m")
-		badge(f"BLOK #{blok_ke}",color='cyan');print();find_text=_baca_blok(f"BLOK #{blok_ke} — KETIK KODE YANG INGIN DICARI",'Akhiri dengan Enter 3x berturut-turut  •  Q atau 0 = batal ke menu','Bisa satu baris atau beberapa baris — tidak perlu format :find/:replace')
+		badge(f"BLOK #{blok_ke}",color='cyan');print();find_text=_baca_blok(f"BLOK #{blok_ke} — KETIK KODE YANG INGIN DICARI",'Ketik DONE lalu Enter untuk selesai  •  Q atau 0 = batal ke menu','Bisa satu baris atau beberapa baris — tidak perlu format :find/:replace')
 		if find_text is None:
 			if blok_ke==1:return
 			break
@@ -1828,10 +2083,7 @@ def cari_dan_ganti_manual():
 		r0,r1,rtype=match_result
 		if rtype.startswith('head_tail'):found_lines=matched_content.splitlines()[r0:r1];found_text='\n'.join(found_lines);line_no=r0+1
 		else:found_text=matched_content[r0:r1];line_no=matched_content[:r0].count('\n')+1
-		print();print(f"  [32m[DITEMUKAN][0m → [1;36m{rel}[0m  [33m(baris {line_no})[0m  {method_label}");elapsed_now=time.time()-_GLOBAL_TIMER_START;print(f"      [38;5;244m↳ ⏱  {elapsed_now:.1f}s[0m");print(f"  [38;5;240m{"─"*sep_w}[0m");found_disp=found_text.splitlines()
-		for ln in found_disp[:30]:print(f"  [32m+ {ln}[0m")
-		if len(found_disp)>30:print(f"  [38;5;240m  ... (+{len(found_disp)-30} baris)[0m")
-		print(f"  [38;5;240m{"─"*sep_w}[0m");pilih_konfirm=popup_confirm(f"✅ KONFIRMASI HASIL — BLOK #{blok_ke}",[f"File  : {rel}",f"Baris : {line_no}",'Apakah ini kode yang ingin Anda ganti?'],[('y','Ya, Lanjutkan'),('n','Lewati Blok Ini'),('0','Batal ke Menu')],layout='vertical')
+		print();print(f"  [32m[DITEMUKAN][0m → [1;36m{rel}[0m  [33m(baris {line_no})[0m  {method_label}");elapsed_now=time.time()-_GLOBAL_TIMER_START;print(f"      [38;5;244m↳ ⏱  {elapsed_now:.1f}s[0m");tampilkan_preview_pencarian(matched_content,matched_file,r0,r1,rtype,line_no);print(f"  [38;5;240m{"─"*sep_w}[0m");pilih_konfirm=popup_confirm(f"✅ KONFIRMASI HASIL — BLOK #{blok_ke}",[f"File  : {rel}",f"Baris : {line_no}",'Apakah ini kode yang ingin Anda ganti?'],[('y','Ya, Lanjutkan'),('n','Lewati Blok Ini'),('0','Batal ke Menu')],layout='vertical')
 		if pilih_konfirm=='0':return
 		if pilih_konfirm!='y':
 			print(f"\n  [33m[SKIP][0m Blok #{blok_ke} dilewati.");print(f"  Ketik [y] untuk tambah blok baru, atau Enter untuk selesai: ",end='')
@@ -1839,7 +2091,7 @@ def cari_dan_ganti_manual():
 			except(EOFError,KeyboardInterrupt):break
 			if ans!='y':break
 			blok_ke-=1;continue
-		print();print(f"  [38;5;240m{"─"*sep_w}[0m");replace_text=_baca_blok(f"BLOK #{blok_ke} — KETIK KODE PENGGANTI",'Akhiri dengan Enter 3x  •  Ketik HAPUS atau Enter 3x (kosong) = hapus kode')
+		print();print(f"  [38;5;240m{"─"*sep_w}[0m");replace_text=_baca_blok(f"BLOK #{blok_ke} — KETIK KODE PENGGANTI",'Ketik DONE lalu Enter untuk selesai  •  Ketik HAPUS atau DONE (kosong) = hapus kode')
 		if replace_text is None:return
 		hapus_mode=replace_text=='';replace_text=replace_text if not hapus_mode else''
 		if hapus_mode:print(f"\n  [33m[INFO][0m Mode HAPUS — kode yang ditemukan akan dihapus.")
@@ -1897,7 +2149,7 @@ def setup_git_identity():
 			if val:GIT_USER_NAME=val;save_git_identity();msg='\x1b[32m✅ Tersimpan\x1b[0m'
 			sys.stdout.write('\x1b[?25l')
 	save_git_identity();print(f"\n{M}  [32m[OK][0m Identitas git berhasil disimpan.");input(f"\n{M}  Tekan Enter untuk kembali ke menu...")
-MENU_SECTIONS=[('OPERASI PATCH',[('1','Terapkan Patch','Eksekusi patch dari blok :find/:replace ke file target'),('2','Cari & Ganti','Cari cuplikan kode secara manual, lalu ganti isinya'),('3','Cek Saja','Simulasikan patch tanpa mengubah file (dry-run)')]),('MANAJEMEN',[('4','Pulihkan Sesi','Kembalikan file ke kondisi commit git tertentu'),('5','Cek Sintaks','Validasi sintaks file .py sebelum diterapkan'),('6','Ubah Direktori','Pindahkan direktori kerja aktif ke folder lain')]),('UTILITAS',[('7','Prompt AI','Salin instruksi format patch untuk asisten AI'),('8','AI Setup','Atur kredensial API key OpenAI'),('9','Threshold','Atur ambang toleransi pencocokan auto-anchor & partial scan'),('g','Identitas Git','Kelola nama & email penulis commit git'),('0','Keluar','Keluar dari aplikasi FR Tool')])]
+MENU_SECTIONS=[('OPERASI PATCH',[('1','Terapkan Patch','Eksekusi patch dari blok :find/:replace ke file target'),('2','Cari & Ganti','Cari cuplikan kode secara manual, lalu ganti isinya'),('3','Cek Saja','Simulasikan patch tanpa mengubah file (dry-run)')]),('MANAJEMEN',[('4','Pulihkan Sesi','Kembalikan 1 file atau seluruh commit git'),('5','Cek Sintaks','Validasi sintaks file .py sebelum diterapkan'),('6','Ubah Direktori','Pindahkan direktori kerja aktif ke folder lain')]),('UTILITAS',[('7','Prompt AI','Salin instruksi format patch untuk asisten AI'),('8','AI Setup','Atur kredensial API key OpenAI'),('9','Threshold','Atur ambang toleransi pencocokan auto-anchor & partial scan'),('g','Identitas Git','Kelola nama & email penulis commit git'),('0','Keluar','Keluar dari aplikasi FR Tool')])]
 def get_key(animate=False):
 	global _resize_pending;fd=sys.stdin.fileno();old_settings=termios.tcgetattr(fd)
 	try:
@@ -1951,7 +2203,7 @@ def draw_menu(selected_idx):
 	if term_cols<MIN_TERM_COLS or term_lines<MIN_TERM_LINES:warn=['','  \x1b[1;38;5;196m⚠  Layar terlalu kecil / zoom terlalu dalam\x1b[0m',f"  [38;5;{C_GRAY}mMinimal {MIN_TERM_COLS} kolom x {MIN_TERM_LINES} baris[0m",f"  [38;5;{C_GRAY}mSaat ini   : {term_cols} kolom x {term_lines} baris[0m",'',f"  [38;5;{C_DGRAY}mPerbesar (zoom out) tampilan terminal, lalu tekan tombol apa saja...[0m",''];sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+'\n'.join(line+'\x1b[K'for line in warn)+'\x1b[0J\x1b[?2026l');sys.stdout.flush();return
 	compact=term_lines<30;_zoom_factor=term_cols/8e1;W=max(24,min(term_cols-2,int(term_cols*.95)));div_w=W-2;max_path_len=max(5,div_w-15);root_short=SOURCE_ROOT if len(SOURCE_ROOT)<=max_path_len else'…'+SOURCE_ROOT[-(max_path_len-1):];buf=[];buf.append('');two_col=div_w>=56;left_w=max(18,int(div_w*.4))if two_col else div_w;right_w=div_w-left_w-3 if two_col else 0
 	if two_col and right_w<16:two_col=False;left_w,right_w=div_w,0
-	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By Zeux[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
+	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By Zeuxi[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
 	if two_col:
 		_tip_l1,_tip_l2=_get_dynamic_tip();_tip_l1=_tip_l1 if len(_tip_l1)<=right_w else _tip_l1[:max(0,right_w-1)]+'…';_tip_l2=_tip_l2 if len(_tip_l2)<=right_w else _tip_l2[:max(0,right_w-1)]+'…';right_cells=[_pad_cell(f"[1;38;5;{C_BORDER}mTips[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l1}[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l2}[0m",right_w),_pad_cell(f"[38;5;{C_DGRAY}m{"─"*right_w}[0m",right_w),_pad_cell(f"[1;38;5;{C_BORDER}mCommit Terakhir[0m",right_w)];_act=_get_recent_activity()
 		for _act_line in _wrap_plain_text(_act,right_w):right_cells.append(_pad_cell(f"[38;5;{C_GRAY}m{_act_line}[0m",right_w))
