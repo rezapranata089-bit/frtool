@@ -4,7 +4,7 @@ from datetime import datetime
 _rc_map={}
 _df_bit=[False]
 _vkey='c7dce73a81fb5c4c64604838fba7cbf4ae63d068cde88086aca0cb8be65a71fb'
-_blk_ref = "c6197a8b2541470084b9a47ccd37597b400182cd4707cd08e3dbb8ec66d5c0c5"
+_blk_ref = "f59f8a5e33660a0f610a191d26da5c3078534e5bef74e826d1870ff7219ccb29"
 _aux_ref = ["1ec2e83491a8263bbbb2930a40788807ffcfdeda474ebe57a4d56f6ed8516ba2", "3d101929ff1a6ee9004a02c90c7ad20ebd9b86ecf125208e21c4f4468eff3a82"]
 def _init_blk():
 	_tampered=False
@@ -36,6 +36,28 @@ def _vf():
 	except Exception:print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
 	if _rc_ok():return True
 	print('\n  \x1b[31m[ERROR]\x1b[0m Inisialisasi runtime gagal.');return False
+def _mix_seed(extra=b''):
+	_base=_rc_map.get('_k')
+	if not isinstance(_base,(bytes,bytearray))or len(_base)!=32:raise RuntimeError('sesi kerja belum siap')
+	import hashlib as _h;return _h.sha256(_base+extra).digest()
+def _fold_tag(*parts):_joined='\x1f'.join(str(p)for p in parts).encode();return _mix_seed(_joined).hex()[:16]
+def _hb_sync(force=False):
+	import time as _tm;_now=int(_tm.time())
+	if not force and _now-_rc_map.get('_hb',0)<900:return _rc_map.get('_v')is True
+	hwid=_rc_map.get('_id')
+	if not hwid:return False
+	try:
+		import urllib.request as _ur,urllib.parse as _up,json as _js,hmac as _hm,hashlib as _hs;_url=f"https://frtools-users-default-rtdb.asia-southeast1.firebasedatabase.app/users/{_up.quote(hwid)}.json";_req=_ur.Request(_url,headers={'User-Agent':'Mozilla/5.0'})
+		with _ur.urlopen(_req,timeout=8)as _resp:_data=_js.loads(_resp.read().decode('utf-8'))
+		_status=_data.get('status','')if isinstance(_data,dict)else'';_exp=_data.get('expired_at','')if isinstance(_data,dict)else'';_sig_rcv=_data.get('sig','')if isinstance(_data,dict)else'';_sig_exp=_hm.new(bytes.fromhex(_vkey),f"{hwid}|{_status}|{_exp}".encode(),_hs.sha256).hexdigest();_ok=_hm.compare_digest(_sig_exp,_sig_rcv)and _status=='active'
+		if _ok and _exp:
+			try:
+				if datetime.now()>datetime.strptime(_exp,'%Y-%m-%d').replace(hour=23,minute=59,second=59):_ok=False
+			except Exception:pass
+		if _ok:_rc_map['_k']=_hm.new(bytes.fromhex(_vkey),f"{hwid}|{_status}|{_exp}".encode(),_hs.sha256).digest();_rc_map['_hb']=_now
+		else:_rc_map['_v']=False
+		return _ok
+	except Exception:return _rc_map.get('_v')is True and _now-_rc_map.get('_hb',0)<3600
 AI_CONFIG_PATH=os.path.expanduser('~/.frtool_config.json')
 HISTORY_PATH=os.path.expanduser('~/.frtool_history.json')
 AMEND_SESSION_PATH=os.path.expanduser('~/.frtool_amend_session.json')
@@ -128,7 +150,7 @@ def _on_resize(signum,frame):global _resize_pending;_resize_pending=True
 def clear():os.system('clear')
 def _term_size():
 	try:return os.get_terminal_size(sys.stdout.fileno())
-	except OSError:return shutil.get_terminal_size()
+	except(OSError,AttributeError):return shutil.get_terminal_size()
 def fast_clear():sys.stdout.write('\x1b[H\x1b[2J');sys.stdout.flush()
 import re as _re
 _ANSI_RE=_re.compile('\\x1b\\[[0-9;]*m')
@@ -651,7 +673,7 @@ def save_ai_config(cfg):
 	with open(AI_CONFIG_PATH,'w')as f:json.dump(cfg,f,indent=2)
 def ai_fix_find(find_text,replace_text,file_content,filename):
 	cfg=load_ai_config();provider=cfg.get('provider','openai');api_key_raw=cfg.get('api_key','');api_keys=[k.strip()for k in api_key_raw.split(',')if k.strip()];model=cfg.get('model','gpt-4o-mini')
-	if not _rc_ok():return None,'Inisialisasi gagal. Jalankan ulang tool.'
+	if not _rc_ok()or not _hb_sync():return None,'Inisialisasi gagal. Jalankan ulang tool.'
 	if not api_keys:return None,'API key belum dikonfigurasi. Pilih menu [6] AI Setup.'
 	PROVIDER_URLS={'openai':'https://api.openai.com/v1/chat/completions','groq':'https://api.groq.com/openai/v1/chat/completions','openrouter':'https://openrouter.ai/api/v1/chat/completions','local':'http://127.0.0.1:4891/v1/chat/completions'};api_url=PROVIDER_URLS.get(provider,PROVIDER_URLS['openai'])
 	if provider=='local'and cfg.get('local_url','').strip():api_url=cfg['local_url'].strip()
@@ -712,6 +734,29 @@ WAJIB 3: Hasilnya harus sekitar {line_count} baris. JANGAN kebablasan menyalin k
 			last_error=f"HTTP {e.code}: {msg}"
 			if e.code in(429,401,403,500,503)and idx<len(api_keys)-1:import sys;sys.stdout.write(f"\r  [33m[API Limit][0m Key #{idx+1} gagal (HTTP {e.code}). Fallback ke Key #{idx+2}... [K");sys.stdout.flush();continue
 			else:break
+		except(urllib.error.URLError,ConnectionRefusedError,OSError)as e:
+			reason=getattr(e,'reason',e);recovered=None
+			for _retry in range(2):
+				time.sleep(2)
+				try:
+					with urllib.request.urlopen(req,timeout=90)as resp:recovered=json.loads(resp.read().decode('utf-8'))
+					break
+				except Exception:continue
+			if recovered:
+				try:
+					result=recovered['choices'][0]['message']['content'].strip()
+					if result.startswith('```'):
+						rlines=result.splitlines();inner=[];skip_first=True
+						for ln in rlines:
+							if skip_first and ln.startswith('```'):skip_first=False;continue
+							if ln.strip()=='```':break
+							inner.append(ln)
+						result='\n'.join(inner).strip()
+					return result,None
+				except Exception:pass
+			last_error=f"Gagal konek ke server AI ({api_url}). Pastikan server lokal/9Router sedang aktif & port-nya benar. Detail: {reason}"
+			if idx<len(api_keys)-1:continue
+			break
 		except Exception as e:
 			last_error=str(e)
 			if idx<len(api_keys)-1:continue
@@ -913,6 +958,41 @@ def tampilkan_diff(content_lama,content_baru,filepath,capture=False):
 	out.append('')
 	if capture:return out
 	print('\n'.join(out))
+_SYN_CAT={'\x1b[38;5;176m':'kw','\x1b[38;5;180m':'str','\x1b[38;5;173m':'num','\x1b[38;5;242m':'cmt','\x1b[38;5;214m':'deco','\x1b[38;5;149m':'func','\x1b[38;5;222m':'cls','\x1b[38;5;80m':'blt','\x1b[38;5;110m':'tag','\x1b[38;5;115m':'attr','\x1b[38;5;204m':'sel','\x1b[38;5;150m':'prop'}
+def build_diff_data(content_lama,content_baru,filepath):
+	rel=os.path.relpath(filepath,SOURCE_ROOT);_lang={'.py':'python','.js':'javascript','.jsx':'javascript','.mjs':'javascript','.cjs':'javascript','.ts':'javascript','.tsx':'javascript','.html':'html','.htm':'html','.css':'css'}.get(os.path.splitext(rel)[1].lower());a_lines=content_lama.splitlines();b_lines=content_baru.splitlines();sm=difflib.SequenceMatcher(None,a_lines,b_lines);groups=list(sm.get_grouped_opcodes(3));total_plus=sum(j2-j1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('insert','replace'));total_minus=sum(i2-i1 for(tag,i1,i2,j1,j2)in sm.get_opcodes()if tag in('delete','replace'))
+	if not groups:return{'rel':rel,'lang':_lang,'plus':0,'minus':0,'rows':[],'empty':True}
+	def _tokens(code,kind,segments=None):
+		if segments:
+			hl=[]
+			for(seg_text,changed)in segments:hl.extend([changed]*len(seg_text))
+		else:hl=[False]*len(code)
+		synmap=_syntax_color_map(code,_lang)if _lang else[None]*len(code);ws_run=_trailing_ws_run(code)if kind in('add','ctx')else None;toks=[]
+		for(i,ch)in enumerate(code):
+			if ws_run and ws_run[0]<=i<ws_run[1]:key='ws',False
+			else:changed=hl[i]if i<len(hl)else False;cat=_SYN_CAT.get(synmap[i])if synmap and i<len(synmap)and synmap[i]else None;key=cat,changed
+			if toks and toks[-1][0]==key:toks[-1]=key,toks[-1][1]+ch
+			else:toks.append((key,ch))
+		return[{'cat':None if k[0]=='ws'else k[0],'ws':k[0]=='ws','ch':k[1],'t':t}for(k,t)in toks]
+	rows=[]
+	for(gi,group)in enumerate(groups):
+		if gi>0:prev_i2=groups[gi-1][-1][2];skip_n=max(0,group[0][1]-prev_i2);rows.append({'type':'sep','skip':skip_n})
+		for(tag,i1,i2,j1,j2)in group:
+			if tag=='equal':
+				for k in range(i2-i1):rows.append({'type':'line','kind':'ctx','old_no':i1+k+1,'new_no':j1+k+1,'tokens':_tokens(a_lines[i1+k],'ctx')})
+			elif tag=='delete':
+				for k in range(i1,i2):rows.append({'type':'line','kind':'del','old_no':k+1,'new_no':None,'tokens':_tokens(a_lines[k],'del')})
+			elif tag=='insert':
+				for k in range(j1,j2):rows.append({'type':'line','kind':'add','old_no':None,'new_no':k+1,'tokens':_tokens(b_lines[k],'add')})
+			elif tag=='replace':
+				seg_del,seg_add={},{}
+				if i2-i1==j2-j1:
+					for k in range(i2-i1):
+						old_l,new_l=a_lines[i1+k],b_lines[j1+k];o_segs,n_segs=_char_diff_segments(old_l,new_l)
+						if o_segs is not None:seg_del[i1+k]=o_segs;seg_add[j1+k]=n_segs
+				for k in range(i1,i2):rows.append({'type':'line','kind':'del','old_no':k+1,'new_no':None,'tokens':_tokens(a_lines[k],'del',segments=seg_del.get(k))})
+				for k in range(j1,j2):rows.append({'type':'line','kind':'add','old_no':None,'new_no':k+1,'tokens':_tokens(b_lines[k],'add',segments=seg_add.get(k))})
+	return{'rel':rel,'lang':_lang,'plus':total_plus,'minus':total_minus,'rows':rows,'empty':False}
 def tampilkan_preview_pencarian(matched_content,filepath,r0,r1,rtype,line_no,ctx_n=4):
 	import bisect;rel=os.path.relpath(filepath,SOURCE_ROOT);_lang={'.py':'python','.js':'javascript','.jsx':'javascript','.mjs':'javascript','.cjs':'javascript','.ts':'javascript','.tsx':'javascript','.html':'html','.htm':'html','.css':'css'}.get(os.path.splitext(rel)[1].lower());lines_no_end=matched_content.splitlines();n_total=len(lines_no_end);hl_ranges={}
 	if rtype.startswith('head_tail'):
@@ -1059,7 +1139,7 @@ def tanya_mode_replace(count,label):print(f"  [PERHATIAN] Blok #{label} ditemuka
 def scan_dan_apply(patch_text,dry_run=False):
 	import time;global _GLOBAL_TIMER_START;start_time=time.time();_GLOBAL_TIMER_START=start_time;clear();_sa_term_cols=_term_size().columns;_sa_sep_w=max(20,min(_sa_term_cols-2,int(_sa_term_cols*.95)));file_patches=parse_patch(patch_text);_patch_title=_extract_patch_title(patch_text)
 	if not file_patches:print('[GAGAL] Tidak ada blok patch yang valid ditemukan.');print();print('Pastikan patch menggunakan salah satu format berikut:');print('  :find / :replace / :end');print('  atau format lama: ===FIND=== ===REPLACE=== ===END===');input('\nTekan Enter untuk kembali ke menu...');return
-	if _df_bit[0]or not _rc_map.get('_v'):print('[GAGAL] Terjadi kesalahan internal.');input('\nTekan Enter untuk kembali ke menu...');return
+	if _df_bit[0]or not _rc_ok():print('[GAGAL] Terjadi kesalahan internal.');input('\nTekan Enter untuk kembali ke menu...');return
 	if dry_run:header('Hasil Analisis \x1b[33m[MODE DRY-RUN]\x1b[0m')
 	else:header('Hasil Analisis')
 	all_ok=True;plan=[];failed_blocks=[];_proj_cache_ref=[None]
@@ -1345,13 +1425,15 @@ def _git_commit_session(rels,custom_msg=None):
 	if not ok:return None,err
 	_git_run(['add','-A']);code,out,_=_git_run(['status','--porcelain'])
 	if code==0 and not out.strip():return None,'tidak ada perubahan untuk di-commit'
+	try:_sess_tag=_fold_tag('commit',SOURCE_ROOT,len(rels))
+	except RuntimeError:return None,'sesi kerja tidak lengkap, batal commit'
 	if custom_msg:msg=custom_msg
 	else:
 		uniq=list(dict.fromkeys(rels))
 		if len(uniq)==1:msg=f"Patch: {uniq[0]}"
 		elif len(uniq)<=3:msg=f"Patch: {", ".join(uniq)}"
 		else:msg=f"Patch: {uniq[0]} +{len(uniq)-1} file lain"
-	code,out,err=_git_run(['commit','-m',msg])
+	msg=f"{msg}\n\nSess: {_sess_tag}";code,out,err=_git_run(['commit','-m',msg])
 	if code!=0:return None,err or out
 	code,out,_=_git_run(['rev-parse','--short','HEAD']);return out if code==0 else None,None
 def _load_amend_session():
@@ -1377,6 +1459,8 @@ def _confirm_amend_target():
 	if pilih=='y':return True
 	_AMEND_SESSION['root']=None;_AMEND_SESSION['head']=None;_save_amend_session();return False
 def _git_amend_session():
+	try:_fold_tag('amend',SOURCE_ROOT)
+	except RuntimeError:return None,'sesi kerja tidak lengkap, batal commit'
 	_git_run(['add','-A']);code,out,_=_git_run(['status','--porcelain'])
 	if code==0 and not out.strip():return None,'tidak ada perubahan untuk di-commit'
 	code,out,err=_git_run(['commit','--amend','--no-edit','--allow-empty'])
@@ -1389,6 +1473,7 @@ def _tanya_lanjut_commit_sama(commit_hash):
 	else:_AMEND_SESSION['root']=None;_AMEND_SESSION['head']=None
 	_save_amend_session();return lanjut=='y'
 def _generate_ai_commit_msg():
+	if not _rc_ok()or not _hb_sync():return
 	ok,_=_git_ensure_repo()
 	if not ok:return
 	_git_run(['add','-A']);code,diff_text,_=_git_run(['diff','--staged'])
@@ -2203,7 +2288,7 @@ def draw_menu(selected_idx):
 	if term_cols<MIN_TERM_COLS or term_lines<MIN_TERM_LINES:warn=['','  \x1b[1;38;5;196m⚠  Layar terlalu kecil / zoom terlalu dalam\x1b[0m',f"  [38;5;{C_GRAY}mMinimal {MIN_TERM_COLS} kolom x {MIN_TERM_LINES} baris[0m",f"  [38;5;{C_GRAY}mSaat ini   : {term_cols} kolom x {term_lines} baris[0m",'',f"  [38;5;{C_DGRAY}mPerbesar (zoom out) tampilan terminal, lalu tekan tombol apa saja...[0m",''];sys.stdout.write('\x1b[?2026h\x1b[2J\x1b[3J\x1b[H'+'\n'.join(line+'\x1b[K'for line in warn)+'\x1b[0J\x1b[?2026l');sys.stdout.flush();return
 	compact=term_lines<30;_zoom_factor=term_cols/8e1;W=max(24,min(term_cols-2,int(term_cols*.95)));div_w=W-2;max_path_len=max(5,div_w-15);root_short=SOURCE_ROOT if len(SOURCE_ROOT)<=max_path_len else'…'+SOURCE_ROOT[-(max_path_len-1):];buf=[];buf.append('');two_col=div_w>=56;left_w=max(18,int(div_w*.4))if two_col else div_w;right_w=div_w-left_w-3 if two_col else 0
 	if two_col and right_w<16:two_col=False;left_w,right_w=div_w,0
-	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By Zeuxi[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
+	mascot_lines=_render_mascot_frame(_get_mascot_frame(),RGB_TERRACOTTA_DARK,RGB_TERRACOTTA_LIGHT,RGB_DELTA_LIGHT);left_cells=[_pad_cell(l,left_w,center=True)for l in mascot_lines];left_cells.append(_pad_cell('',left_w));_lp_len=max(6,left_w-10);_dir_disp=root_short if len(root_short)<=_lp_len else'…'+root_short[-(_lp_len-1):];left_cells.append(_pad_cell(f"[38;5;{C_DGRAY}m{VERSION} · By Reza[0m",left_w,center=True));left_cells.append(_pad_cell(f"[38;5;{C_GRAY}mDIR [0m{_animated_dir_text(_dir_disp)}",left_w,center=True))
 	if two_col:
 		_tip_l1,_tip_l2=_get_dynamic_tip();_tip_l1=_tip_l1 if len(_tip_l1)<=right_w else _tip_l1[:max(0,right_w-1)]+'…';_tip_l2=_tip_l2 if len(_tip_l2)<=right_w else _tip_l2[:max(0,right_w-1)]+'…';right_cells=[_pad_cell(f"[1;38;5;{C_BORDER}mTips[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l1}[0m",right_w),_pad_cell(f"[38;5;{C_GRAY}m{_tip_l2}[0m",right_w),_pad_cell(f"[38;5;{C_DGRAY}m{"─"*right_w}[0m",right_w),_pad_cell(f"[1;38;5;{C_BORDER}mCommit Terakhir[0m",right_w)];_act=_get_recent_activity()
 		for _act_line in _wrap_plain_text(_act,right_w):right_cells.append(_pad_cell(f"[38;5;{C_GRAY}m{_act_line}[0m",right_w))
@@ -2307,7 +2392,7 @@ def _sys_auth():
 			if sisa_hari is not None:
 				if sisa_hari<=3:print(f"  [33m[PERINGATAN][0m Aktif hingga {expired_at} ({sisa_hari} hari lagi).")
 				else:print(f"  [38;5;244mAktif hingga: {expired_at}  ({sisa_hari} hari lagi)[0m")
-			time.sleep(1);fast_clear();_rc_map['_v']=True;_rc_map['_t']=int(time.time())
+			time.sleep(1);fast_clear();_rc_map['_v']=True;_rc_map['_t']=int(time.time());_rc_map['_k']=_hm.new(bytes.fromhex(_vkey),f"{hwid}|{_status}|{_exp}".encode(),_hs.sha256).digest();_rc_map['_hb']=int(time.time());_rc_map['_id']=hwid
 	except Exception as e:fast_clear();print(f"\n  [31m[TIDAK ADA KONEKSI][0m Gagal terhubung ke internet.");print(f"  [38;5;244mPastikan internet menyala, lalu coba jalankan ulang tool.[0m");sys.stdout.write('\x1b[?25h');sys.exit(1)
 def _find_git_root(start_dir,max_up=6):
 	cur=os.path.abspath(start_dir)
